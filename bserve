@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Part 2, track 1 -- the BHTTP/1 file server.
+
+    ./bserve ./www 9000                  (Windows: bserve.cmd ./www 9000)
+    ./bserve ./www 9000 -v               hexdump every frame to stderr
+    ./bserve ./www 9000 --grease         send an unknown frame before every response
+"""
+import argparse
+import logging
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from app.config import BServeConfig                      # noqa: E402
+from app.controllers.file_controller import FileController  # noqa: E402
+from app.models.file_store import FileStore             # noqa: E402
+from app.network.bhttp_server import BServe             # noqa: E402
+from app.views.bhttp_view import BHttpView              # noqa: E402
+from app.views.hexdump_view import FrameTracer          # noqa: E402
+
+
+def main(argv=None) -> int:
+    defaults = BServeConfig()
+    parser = argparse.ArgumentParser(prog="bserve", description="BHTTP/1 file server")
+    parser.add_argument("root", help="document root, e.g. ./www")
+    parser.add_argument("port", type=int, nargs="?", default=defaults.port)
+    parser.add_argument("--host", default=defaults.host, help="interface to bind (default: all)")
+    parser.add_argument("--idle-timeout", type=float, default=defaults.idle_timeout)
+    parser.add_argument("-v", "--verbose", action="store_true", help="hexdump every frame")
+    parser.add_argument("--annotate", action="store_true", help="with -v: name every field")
+    parser.add_argument("--grease", action="store_true", help="send unknown frames to test clients")
+    parser.add_argument("-q", "--quiet", action="store_true", help="log warnings only")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(level=logging.WARNING if args.quiet else logging.INFO,
+                        format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
+    try:
+        store = FileStore(args.root)
+    except (OSError, NotADirectoryError) as exc:
+        print(f"bserve: document root {args.root!r} is not a directory: {exc}", file=sys.stderr)
+        return 2
+    config = BServeConfig(root=args.root, host=args.host, port=args.port,
+                          idle_timeout=args.idle_timeout, grease=args.grease, verbose=args.verbose)
+    view = BHttpView(data_frame_size=config.data_frame_size, grease=config.grease)
+    tracer = FrameTracer(sys.stderr, annotate=args.annotate) if args.verbose else None
+    server = BServe(FileController(store, view), config, view, tracer)
+    logging.getLogger("bserve").info("serving %s", store.root)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.shutdown()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
