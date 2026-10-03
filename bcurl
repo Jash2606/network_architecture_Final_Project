@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""Part 2, track 2 -- the BHTTP/1 client.
+
+    ./bcurl -v localhost:9000/index.html          (Windows: bcurl.cmd ...)
+    ./bcurl localhost:9000/a.html localhost:9000/b.html     two requests, one connection
+    ./bcurl -I localhost:9000/index.html          HEAD
+    ./bcurl -v --annotate localhost:9000/         name every field of every frame
+"""
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from app.controllers.bcurl_controller import USAGE, BcurlController  # noqa: E402
+from app.models.bhttp import Method                              # noqa: E402
+from app.views.hexdump_view import FrameTracer                   # noqa: E402
+
+
+def header_arg(text: str):
+    name, colon, value = text.partition(":")
+    if not colon or not name.strip():
+        raise argparse.ArgumentTypeError(f"expected 'name: value', got {text!r}")
+    return name.strip(), value.strip()
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(prog="bcurl", description="BHTTP/1 client: body to stdout")
+    parser.add_argument("urls", nargs="+", metavar="URL", help="host[:port]/path (port 9000 by default)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="hexdump every frame to stderr")
+    parser.add_argument("--annotate", action="store_true", help="with -v: name every field")
+    parser.add_argument("--dump-limit", type=int, default=0, metavar="N",
+                        help="with -v: show at most N octets per frame (default: all)")
+    parser.add_argument("-X", "--request", default=None, metavar="METHOD",
+                        choices=[m.name for m in Method], help="GET (default), HEAD, POST, PUT, DELETE")
+    parser.add_argument("-I", "--head", action="store_true", help="send HEAD")
+    parser.add_argument("-H", "--header", action="append", type=header_arg, default=[],
+                        metavar="'NAME: VALUE'", help="extra header (repeatable)")
+    parser.add_argument("--pipeline", action="store_true", help="send every request before reading")
+    parser.add_argument("--grease", action="store_true", help="send an unknown frame before each request")
+    parser.add_argument("--timeout", type=float, default=30.0)
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        return USAGE if exc.code else 0
+
+    method = Method.HEAD if args.head else Method[args.request or "GET"]
+    verbose = args.verbose or args.annotate
+    tracer = FrameTracer(sys.stderr, annotate=args.annotate, limit=args.dump_limit) if verbose else None
+    return BcurlController(tracer=tracer).run(args.urls, method, args.header, args.pipeline,
+                                              args.grease, args.timeout)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
