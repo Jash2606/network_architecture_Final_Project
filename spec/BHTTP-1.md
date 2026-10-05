@@ -142,3 +142,33 @@ On top of that:
   REQUEST. A v1 server skips HELLO, and because answers come in order, the client knows
   the server is v1 when the first frame back is a RESPONSE instead of a reply to HELLO.
 
+## 6. Test vectors
+
+Check an implementation against these bytes. An encoder given these messages MUST
+produce exactly these octets, and a decoder MUST read them back as shown. The test
+suite checks our own code against them.
+
+**V1: a request.** `GET /index.html` on stream 1, with `host: localhost:9000` (table
+entry #1) and `dnt: 1` (a literal name):
+
+```text
+bf 01 01 00 01 00 00 28   01   00 0b 2f 69 6e 64 65 78 2e 68 74 6d 6c
+01 00 0e 6c 6f 63 61 6c 68 6f 73 74 3a 39 30 30 30   00 00 03 64 6e 74 00 01 31
+```
+
+**V2: its answer**, as one RESPONSE frame then one DATA frame. The status is 200, with
+`content-type: text/plain`, `content-length: 2`, and the body `hi`:
+
+```text
+bf 02 00 00 01 00 00 13   00 c8   06 00 0a 74 65 78 74 2f 70 6c 61 69 6e   07 00 01 32
+bf 03 01 00 01 00 00 02   68 69
+```
+
+**V3: a frame nobody knows.** Type `0xF7` (reserved) on stream 0, carrying `abc`. A
+receiver MUST skip these 11 octets and carry on with whatever comes next:
+
+```text
+bf f7 00 00 00 00 00 03   61 62 63
+```
+
+Every octet of a longer, real exchange is annotated in `docs/annotated-hexdump.md`.

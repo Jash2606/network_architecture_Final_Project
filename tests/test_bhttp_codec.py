@@ -100,5 +100,35 @@ class ReaderTest(unittest.TestCase):
             self.reader.read_frame(1, 1)
 
 
+class SpecVectorTest(unittest.TestCase):
+    """The bytes printed in spec/BHTTP-1.md section 6 -- if these fail, the spec is wrong."""
+
+    V1 = ("bf0101000100002801000b2f696e6465782e68746d6c"
+          "01000e6c6f63616c686f73743a39303030000003646e74000131")
+    V2_RESPONSE = "bf0200000100001300c806000a746578742f706c61696e07000132"
+    V2_DATA = "bf030100010000026869"
+    V3 = "bff7000000000003616263"
+
+    def test_v1_request(self):
+        headers = [("host", "localhost:9000"), ("dnt", "1")]
+        wire = encode_frame(FrameType.REQUEST, END_STREAM, 1, encode_request(Method.GET, "/index.html", headers))
+        self.assertEqual(wire.hex(), self.V1)
+        self.assertEqual(decode_request(wire[8:]), (Method.GET, "/index.html", headers))
+
+    def test_v2_response_and_data(self):
+        headers = [("content-type", "text/plain"), ("content-length", "2")]
+        self.assertEqual(encode_frame(FrameType.RESPONSE, 0, 1, encode_response(200, headers)).hex(),
+                         self.V2_RESPONSE)
+        self.assertEqual(encode_frame(FrameType.DATA, END_STREAM, 1, b"hi").hex(), self.V2_DATA)
+
+    def test_v3_unknown_frame_is_skipped(self):
+        a, b = socket.socketpair()
+        with a, b:
+            a.sendall(bytes.fromhex(self.V3) + bytes.fromhex(self.V2_DATA))
+            reader = FrameReader(b)
+            self.assertTrue(reader.read_frame(1, 1).skipped)
+            self.assertEqual(reader.read_frame(1, 1).payload, b"hi")
+
+
 if __name__ == "__main__":
     unittest.main()
